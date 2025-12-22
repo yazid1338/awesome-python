@@ -1,4 +1,136 @@
-<div align="center">
+"""
+Microchip Super App — improved, defensive version
+
+Assumptions:
+- edge_ai_engine provides a Connect(...) or connect(...) factory that returns an object
+  with attributes: connected: bool, latency_ms: float (latency in milliseconds).
+- mars_crm_core provides a sync(provider: str, data: Optional[dict]) function.
+
+Adjust adapter functions if the real libraries differ.
+"""
+
+from typing import Optional
+import logging
+import time
+
+# Placeholder imports — replace with real libraries or adapters
+import edge_ai_engine as mesh
+import mars_crm_core as crm
+
+# Configuration constants
+CLOUD_PROVIDER = "Google_Microsoft_Hybrid"
+LATENCY_THRESHOLD_MS = 20.0  # interpret "20m" as 20 milliseconds; change if you meant minutes
+
+logger = logging.getLogger("MicrochipSuperApp")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+class MicrochipSuperApp:
+    def __init__(self, processor: str = "Hybrid_ARM_x86_13nm"):
+        self.processor = processor
+        # Attempt to create/connect a network adapter safely
+        try:
+            # Some libs use Connect, some use connect — try both safely
+            if hasattr(mesh, "Connect"):
+                self.network = mesh.Connect(protocol="LAN_x866")
+            elif hasattr(mesh, "connect"):
+                self.network = mesh.connect(protocol="LAN_x866")
+            else:
+                raise AttributeError("edge_ai_engine has no Connect/connect factory")
+            logger.info("Network adapter initialized.")
+        except Exception as e:
+            logger.exception("Failed to initialize network adapter: %s", e)
+            self.network = None
+
+    def sync_to_cloud(self, payload: Optional[dict] = None) -> bool:
+        """
+        Sync important state to cloud (Google + Microsoft hybrid).
+        Uses numeric latency check in milliseconds to decide whether to attempt sync.
+        Returns True on success, False on failure or if sync skipped.
+        """
+        if self.network is None:
+            logger.warning("No network adapter available — skipping cloud sync.")
+            return False
+
+        # Normalize latency attribute names used by different adapters
+        latency_ms = None
+        for attr in ("latency", "latency_ms", "ping_ms"):
+            if hasattr(self.network, attr):
+                val = getattr(self.network, attr)
+                try:
+                    latency_ms = float(val)
+                except Exception:
+                    latency_ms = None
+                break
+
+        if latency_ms is None:
+            logger.warning("Network latency unknown — attempting sync with caution.")
+        else:
+            logger.debug("Current network latency: %.2f ms", latency_ms)
+            if latency_ms > LATENCY_THRESHOLD_MS:
+                logger.info("Latency (%.2f ms) exceeds threshold (%.2f ms) — skipping sync.", latency_ms, LATENCY_THRESHOLD_MS)
+                return False
+
+        # Attempt sync with error handling
+        try:
+            # crm.sync may have different signature; pass payload if supported
+            if hasattr(crm, "sync"):
+                # Some crm implementations may block; consider using async adapters
+                crm.sync(provider=CLOUD_PROVIDER, data=payload)
+            else:
+                raise AttributeError("mars_crm_core.sync not found")
+            logger.info("Cloud sync successful to provider: %s", CLOUD_PROVIDER)
+            return True
+        except Exception as e:
+            logger.exception("Cloud sync failed: %s", e)
+            return False
+
+    def run_ai_task(self, task: str = "Atmosphere_Analysis", workload_complexity: float = 1.0) -> None:
+        """
+        Distribute AI workload between NPU and GPU.
+        workload_complexity: arbitrary heuristic — >1.0 is heavy and should prefer GPU.
+        """
+        # Compute target selection heuristics
+        try:
+            # Example: prefer NPU for low complexity, GPU for heavy models
+            if workload_complexity <= 1.0:
+                targets = ["NPU", "GPU"]  # try NPU first, fallback to GPU
+            else:
+                targets = ["GPU", "NPU"]
+
+            # Ensure mesh provides a distribution API
+            distribute_fn = None
+            if hasattr(mesh, "distribute_workload"):
+                distribute_fn = mesh.distribute_workload
+            elif hasattr(mesh, "distribute"):
+                distribute_fn = mesh.distribute
+            else:
+                logger.error("No workload distribution API found on edge_ai_engine.")
+                return
+
+            for target in targets:
+                try:
+                    logger.info("Dispatching task '%s' to %s", task, target)
+                    # call signature may be (target=..., task=..., priority=...)
+                    distribute_fn(target=target, task=task, priority="normal")
+                    logger.info("Task '%s' dispatched to %s successfully.", task, target)
+                    break
+                except Exception as e:
+                    logger.warning("Failed to dispatch to %s: %s — trying next target.", target, e)
+            else:
+                logger.error("All targets failed for task '%s'.", task)
+        except Exception as e:
+            logger.exception("Unexpected error while running AI task: %s", e)
+
+
+if __name__ == "__main__":
+    app = MicrochipSuperApp()
+    # Example payload
+    telemetry = {"timestamp": time.time(), "planet": "Mars", "status": "ok"}
+    synced = app.sync_to_cloud(payload=telemetry)
+    if not synced:
+        logger.info("Proceeding to run AI task even though sync did not complete.")
+    app.run_ai_task(task="Atmosphere_Analysis", workload_complexity=0.8)<div align="center">
     <sup>Special thanks to:</sup>
     <br>
     <a href="https://go.warp.dev/awesome-python" target="_blank">
